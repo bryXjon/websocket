@@ -4,26 +4,51 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
+
+// Initialize Socket.IO with CORS
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+  },
 });
 
+// Map: company_id (string) → Set of socket IDs
 const userSockets = new Map();
 
 io.on("connection", (socket) => {
-  console.log("🟢 Connected:", socket.id);
+  console.log("Connected:", socket.id);
 
   socket.on("register", (company_id) => {
-    userSockets.set(company_id, socket.id);
-    console.log(`✅ Registered ${company_id} → ${socket.id}`);
+    if (!company_id) return;
+
+    const key = String(company_id); // Ensure consistent type
+    if (!userSockets.has(key)) {
+      userSockets.set(key, new Set());
+    }
+
+    const sockets = userSockets.get(key);
+    if (!sockets.has(socket.id)) {
+      sockets.add(socket.id);
+      console.log(`Registered ${key} → ${socket.id}`);
+    }
+
+    socket.company_id = key;
+
+    // Let client know registration was successful
+    socket.emit("registered", { company_id: key });
   });
 
   socket.on("disconnect", () => {
-    for (const [company_id, id] of userSockets) {
-      if (id === socket.id) {
-        userSockets.delete(company_id);
-        console.log(`🔌 Disconnected ${company_id}`);
-        break;
+    const key = socket.company_id;
+    if (key && userSockets.has(key)) {
+      const sockets = userSockets.get(key);
+      sockets.delete(socket.id);
+      if (sockets.size === 0) {
+        userSockets.delete(key);
+        console.log(`Disconnected last socket for ${key}`);
+      } else {
+        console.log(`Disconnected one socket from ${key}`);
       }
     }
   });
@@ -31,63 +56,96 @@ io.on("connection", (socket) => {
 
 app.use(express.json());
 
-// 🎯 Send to specific companies
+// POST /send-notification
 app.post("/send-notification", (req, res) => {
-  const { company_ids, title, message } = req.body;
+  const {
+    company_ids = [],
+    title,
+    message,
+    type = "announcement",
+    category = "Update",
+  } = req.body;
 
-  if (!Array.isArray(company_ids)) {
-    return res.status(400).json({ success: false, message: "Missing company_ids[]" });
-  }
+  const payload = {
+    type,
+    title,
+    message,
+    category,
+    date: new Date().toLocaleString(),
+  };
 
   const sentTo = [];
   const notConnected = [];
 
-  setTimeout(() => {
+  // Debug: Dump the full map before sending
+  console.log("\n Current userSockets state:");
+  for (const [key, set] of userSockets.entries()) {
+    console.log(`- ${key}: ${[...set].join(", ")}`);
+  }
+
+  if (type === "announcement") {
+    userSockets.forEach((socketSet, key) => {
+      socketSet.forEach((socketId) => io.to(socketId).emit("receive-notification", payload));
+      sentTo.push(key);
+    });
+    console.log(`Broadcasted to ${sentTo.length} company(s)`);
+  } else if (type === "for_approval") {
     company_ids.forEach((id) => {
-      const socketId = userSockets.get(id);
-      if (socketId) {
-        io.to(socketId).emit("receive-notification", {
-          type: "announcement",
-          title,
-          message,
-          category: "Update",
-          date: new Date().toLocaleString()
-        });
-        sentTo.push(id);
+      const key = String(id);
+      const sockets = userSockets.get(key);
+      if (sockets?.size) {
+        sockets.forEach((socketId) => io.to(socketId).emit("receive-notification", payload));
+        sentTo.push(key);
       } else {
-        notConnected.push(id);
+        notConnected.push(key);
       }
     });
-  }, 3000);
+    console.log(`Approval notifications sent to: ${sentTo.join(", ")}`);
+    if (notConnected.length) {
+      console.warn(`Not connected: ${notConnected.join(", ")}`);
+    }
+  } else {
+    return res.status(400).json({
+      success: false,
+      message: `Unknown notification type: "${type}".`,
+    });
+  }
 
-  res.json({
+  return res.json({
     success: true,
+    type,
     sentTo,
     notConnected,
-    message: "Scheduled notification dispatch."
+    message: "Notification dispatch complete.",
   });
 });
 
-// 📢 Broadcast to all
+// Simple broadcast endpoint
 app.post("/broadcast", (req, res) => {
-  const { title, content, category, date } = req.body;
+  const { title, content, category = "Update" } = req.body;
   const payload = {
     type: "announcement",
     title,
     message: content,
-    category: category || "Update",
-    date: date || new Date().toLocaleString()
+    category,
+    date: new Date().toLocaleString(),
   };
 
-  setTimeout(() => {
-    io.emit("receive-notification", payload);
-    console.log("📣 Broadcast sent:", payload);
-  }, 3000);
+  io.emit("receive-notification", payload);
+  console.log("Broadcast sent:", payload);
 
-  res.json({ success: true, message: "Broadcast scheduled." });
+  return res.json({ success: true, message: "Broadcast delivered to all clients." });
 });
 
+// Health check
+app.get("/ping", (req, res) => {
+  let total = 0;
+  userSockets.forEach((set) => (total += set.size));
+  res.json({ status: "OK", connectedSockets: total });
+});
+
+// Start the server
 const PORT = 6001;
 server.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log(`Server is live at http://localhost:${PORT}`);
 });
