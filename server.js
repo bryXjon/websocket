@@ -13,7 +13,6 @@ const io = new Server(server, {
   },
 });
 
-// Map: company_id (string) → Set of socket IDs
 const userSockets = new Map();
 
 io.on("connection", (socket) => {
@@ -22,7 +21,7 @@ io.on("connection", (socket) => {
   socket.on("register", (company_id) => {
     if (!company_id) return;
 
-    const key = String(company_id); // Ensure consistent type
+    const key = String(company_id);
     if (!userSockets.has(key)) {
       userSockets.set(key, new Set());
     }
@@ -35,7 +34,7 @@ io.on("connection", (socket) => {
 
     socket.company_id = key;
 
-    // Let client know registration was successful
+    // successful
     socket.emit("registered", { company_id: key });
   });
 
@@ -63,7 +62,7 @@ app.post("/send-notification", (req, res) => {
     title,
     message,
     type = "announcement",
-    category = "Update",
+    category = "",
   } = req.body;
 
   const payload = {
@@ -120,7 +119,7 @@ app.post("/send-notification", (req, res) => {
   });
 });
 
-// Simple broadcast endpoint
+// broadcast endpoint
 app.post("/broadcast", (req, res) => {
   const { title, content, category = "Update" } = req.body;
   const payload = {
