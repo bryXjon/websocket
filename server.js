@@ -84,22 +84,35 @@ app.post("/send-notification", (req, res) => {
 
   if (type === "announcement") {
     userSockets.forEach((socketSet, key) => {
-      socketSet.forEach((socketId) => io.to(socketId).emit("receive-notification", payload));
+      socketSet.forEach((socketId) =>
+        io.to(socketId).emit("receive-notification", payload)
+      );
       sentTo.push(key);
     });
     console.log(`Broadcasted to ${sentTo.length} company(s)`);
   } else if (type === "for_approval") {
+    // Send approval notification only to specific company IDs
     company_ids.forEach((id) => {
       const key = String(id);
       const sockets = userSockets.get(key);
       if (sockets?.size) {
-        sockets.forEach((socketId) => io.to(socketId).emit("receive-notification", payload));
+        sockets.forEach((socketId) =>
+          io.to(socketId).emit("receive-notification", payload)
+        );
         sentTo.push(key);
       } else {
         notConnected.push(key);
       }
     });
-    console.log(`Approval notifications sent to: ${sentTo.join(", ")}`);
+
+    // Broadcast sidebar refresh to ALL connected clients
+    io.emit("refresh-pending-counts", {
+      type: "refresh-counts",
+      date: new Date().toLocaleString(),
+    });
+
+    console.log(`Approval sent to: ${sentTo.join(", ")}`);
+    console.log(`Triggered global pending count refresh.`);
     if (notConnected.length) {
       console.warn(`Not connected: ${notConnected.join(", ")}`);
     }
@@ -109,6 +122,25 @@ app.post("/send-notification", (req, res) => {
       message: `Unknown notification type: "${type}".`,
     });
   }
+
+  //  else if (type === "for_approval") {
+  //   company_ids.forEach((id) => {
+  //     const key = String(id);
+  //     const sockets = userSockets.get(key);
+  //     if (sockets?.size) {
+  //       sockets.forEach((socketId) =>
+  //         io.to(socketId).emit("receive-notification", payload)
+  //       );
+  //       sentTo.push(key);
+  //     } else {
+  //       notConnected.push(key);
+  //     }
+  //   });
+  //   console.log(`Approval notifications sent to: ${sentTo.join(", ")}`);
+  //   if (notConnected.length) {
+  //     console.warn(`Not connected: ${notConnected.join(", ")}`);
+  //   }
+  // }
 
   return res.json({
     success: true,
@@ -133,8 +165,26 @@ app.post("/broadcast", (req, res) => {
   io.emit("receive-notification", payload);
   console.log("Broadcast sent:", payload);
 
-  return res.json({ success: true, message: "Broadcast delivered to all clients." });
+  return res.json({
+    success: true,
+    message: "Broadcast delivered to all clients.",
+  });
 });
+
+// app.post("/broadcast-refresh", (req, res) => {
+//   const payload = {
+//     type: "refresh-counts",
+//     date: new Date().toLocaleString(),
+//   };
+
+//   io.emit("refresh-pending-counts", payload);
+//   console.log("Sidebar refresh broadcast triggered.");
+
+//   return res.json({
+//     success: true,
+//     message: "Pending count refresh sent to all clients.",
+//   });
+// });
 
 // Health check
 app.get("/ping", (req, res) => {
