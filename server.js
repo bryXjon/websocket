@@ -5,12 +5,8 @@ const { Server } = require("socket.io");
 
 const app = express();
 const sslOptions = {
-  key: fs.readFileSync(
-    "/etc/letsencrypt/live/ws.intlogisticsmanpower.com/privkey.pem"
-  ),
-  cert: fs.readFileSync(
-    "/etc/letsencrypt/live/ws.intlogisticsmanpower.com/fullchain.pem"
-  ),
+  key: fs.readFileSync("/home/ubuntu/certs/ws/privkey.pem"),
+  cert: fs.readFileSync("/home/ubuntu/certs/ws/fullchain.pem"),
 };
 
 const server = https.createServer(sslOptions, app);
